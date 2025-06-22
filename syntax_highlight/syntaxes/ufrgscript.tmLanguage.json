@@ -1,0 +1,64 @@
+{
+    "scopeName": "source.ufrgscript",
+    "name": "Ufrgscript",
+    "patterns": [
+      {
+        "include": "#comments"
+      },
+      {
+        "include": "#keywords"
+      },
+      {
+        "include": "#operators"
+      },
+      {
+        "include": "#literals"
+      },
+      {
+        "include": "#identifiers"
+      }
+    ],
+    "repository": {
+      "comments": {
+        "patterns": [{
+          "name": "comment.line.double-slash.ufrgscript",
+          "match": "//.*",
+          "captures": {
+            "0": {
+              "name": "comment.line.double-slash.ufrgscript"
+            }
+          }
+        }]
+      },
+      "keywords": {
+        "patterns": [{
+          "name": "keyword.control.ufrgscript",
+          "match": "\\b(as|declare|else|if|is|return|returns|while|with)\\b"
+        }, {
+          "name": "keyword.type.ufrgscript",
+          "match": "\\b(float|int)\\b"
+        }]
+      },
+      "operators": {
+        "patterns": [{
+          "name": "keyword.operator.ufrgscript",
+          "match": "<=|>=|==|!=|[!*/%+\\-<>\\[\\]\\(\\),;&\\|]"
+        }]
+      },
+      "literals": {
+        "patterns": [{
+          "name": "constant.numeric.float.ufrgscript",
+          "match": "[0-9]*\\.[0-9]+"
+        }, {
+          "name": "constant.numeric.integer.ufrgscript",
+          "match": "[0-9]+"
+        }]
+      },
+      "identifiers": {
+        "patterns": [{
+          "name": "variable.ufrgscript",
+          "match": "[a-z_][a-z0-9_]*"
+        }]
+      }
+    }
+  }
