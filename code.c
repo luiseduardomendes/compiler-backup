@@ -97,32 +97,52 @@ iloc_list_t* gen_assign(table_stack_t* stack, const char* var_name, iloc_list_t*
     return code;
 }
 
-// Generate code for if statement
 iloc_list_t* gen_if(iloc_list_t* cond_code, char* cond_reg, iloc_list_t* then_code, iloc_list_t* else_code) {
-    iloc_list_t* code = NULL;
+    iloc_list_t* code = new_iloc_list();
     iloc_list_t* code_aux = NULL;
-    char* else_label = new_label();
-    char* end_label = new_label();
+    char* then_label = new_label();  // Label for then block
+    char* else_label = new_label();  // Label for else block (if exists)
+    char* end_label = new_label();   // Label to jump to after then block
 
-    if (cond_code) code = concat_iloc(code, cond_code);
-    else code = new_iloc_list();
-    append_iloc(code, make_iloc(NULL, "cbr", cond_reg, else_label, end_label));
-    append_iloc(code, make_iloc(else_label, "nop", NULL, NULL, NULL));
+    // Add condition code
+    if (cond_code) {
+        code_aux = concat_iloc(code, cond_code);
+        free_iloc_list(code);
+        code = code_aux;
+    }
+
+    // Branch: if true go to then, else go to else/end
+    if (else_code) {
+        append_iloc(code, make_iloc(NULL, "cbr", cond_reg, then_label, else_label));
+    } else {
+        append_iloc(code, make_iloc(NULL, "cbr", cond_reg, then_label, end_label));
+    }
+
+    // Then block
+    append_iloc(code, make_iloc(then_label, "nop", NULL, NULL, NULL));
     if (then_code) {
         code_aux = concat_iloc(code, then_code);
         free_iloc_list(code);
         code = code_aux;
     }
-
+    
+    // Jump to end (skip else block if it exists)
     if (else_code) {
         append_iloc(code, make_iloc(NULL, "jumpI", NULL, NULL, end_label));
-        append_iloc(code, make_iloc(end_label, "nop", NULL, NULL, NULL));
+    }
+
+    // Else block (if exists)
+    if (else_code) {
+        append_iloc(code, make_iloc(else_label, "nop", NULL, NULL, NULL));
         code_aux = concat_iloc(code, else_code);
         free_iloc_list(code);
         code = code_aux;
-    } else {
-        append_iloc(code, make_iloc(end_label, "nop", NULL, NULL, NULL));
     }
+
+    // End label
+    append_iloc(code, make_iloc(end_label, "nop", NULL, NULL, NULL));
+
+    free(then_label);
     free(else_label);
     free(end_label);
     return code;
