@@ -1,7 +1,20 @@
 #include "iloc.h"
+#include "table.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
+void print_x86_data_section(FILE *stream, table_stack_t *stack);
+
+const char* iloc_cmp_to_jmp(const char* cmp) {
+    if (strcmp(cmp, "cmp_EQ") == 0) return "je";
+    if (strcmp(cmp, "cmp_NE") == 0) return "jne";
+    if (strcmp(cmp, "cmp_LT") == 0) return "jl";
+    if (strcmp(cmp, "cmp_LE") == 0) return "jle";
+    if (strcmp(cmp, "cmp_GT") == 0) return "jg";
+    if (strcmp(cmp, "cmp_GE") == 0) return "jge";
+    return "jne"; // fallback
+}
 
 iloc_instr_t* make_iloc(const char *label, const char *opcode, const char *arg1, const char *arg2, const char *result) {
     iloc_instr_t *instr = (iloc_instr_t*)malloc(sizeof(iloc_instr_t));
@@ -179,3 +192,100 @@ void print_iloc_code(FILE *stream, iloc_list_t *list) {
         current = current->next;
     }
 }
+void print_x86_code(FILE *stream, iloc_list_t *list, table_stack_t *stack) {
+    if (!list || !list->head) {
+        return;
+    }
+
+    // --- X86 Assembly Data Section (for globals) ---
+    print_x86_data_section(stream, stack);
+
+    // --- X86 Assembly Header ---
+    fprintf(stream, "    .text\n");
+    fprintf(stream, "    .globl main\n");
+    fprintf(stream, "main:\n");
+    fprintf(stream, "    pushq %%rbp\n");
+    fprintf(stream, "    movq %%rsp, %%rbp\n");
+
+    iloc_instr_t *current = list->head;
+    const char* last_cmp = NULL;
+
+    while (current != NULL) {
+        // Print the label if it exists (skip if it's "main" since already printed)
+        if (current->label) {
+            fprintf(stream, "%s:\n", current->label);
+        }
+
+        // --- Arithmetic Operations ---
+        if (strcmp(current->opcode, "add") == 0) {
+            fprintf(stream, "    movl %s, %s\n", current->arg1, current->result);
+            fprintf(stream, "    addl %s, %s\n", current->arg2, current->result);
+        } else if (strcmp(current->opcode, "sub") == 0) {
+            fprintf(stream, "    movl %s, %s\n", current->arg1, current->result);
+            fprintf(stream, "    subl %s, %s\n", current->arg2, current->result);
+        } else if (strcmp(current->opcode, "mult") == 0) {
+            fprintf(stream, "    movl %s, %s\n", current->arg1, current->result);
+            fprintf(stream, "    imull %s, %s\n", current->arg2, current->result);
+        } else if (strcmp(current->opcode, "div") == 0) {
+            fprintf(stream, "    movl %s, %%eax\n", current->arg1);
+            fprintf(stream, "    cltd\n");
+            fprintf(stream, "    idivl %s\n", current->arg2);
+            fprintf(stream, "    movl %%eax, %s\n", current->result);
+        } else if (strcmp(current->opcode, "addI") == 0) {
+            fprintf(stream, "    movl %s, %s\n", current->arg1, current->result);
+            fprintf(stream, "    addl $%s, %s\n", current->arg2, current->result);
+        } else if (strcmp(current->opcode, "loadI") == 0) {
+            fprintf(stream, "    movl $%s, %s\n", current->arg1, current->result);
+        } else if (strcmp(current->opcode, "loadAI") == 0) {
+            // loadAI base, offset => dest
+            fprintf(stream, "    movl %s(%s), %s\n", current->arg2, current->arg1, current->result);
+        } else if (strcmp(current->opcode, "load") == 0) {
+            fprintf(stream, "    movl %s, %s\n", current->arg1, current->result);
+        } else if (strcmp(current->opcode, "storeAI") == 0) {
+            fprintf(stream, "    movl %s, %s(%s)\n", current->arg1, current->result, current->arg2);
+        } else if (strcmp(current->opcode, "jumpI") == 0 || strcmp(current->opcode, "jump") == 0) {
+            fprintf(stream, "    jmp %s\n", current->result);
+        } else if (strncmp(current->opcode, "cmp_", 4) == 0) {
+            fprintf(stream, "    cmpl %s, %s\n", current->arg2, current->arg1);
+            last_cmp = current->opcode;
+        } else if (strcmp(current->opcode, "cbr") == 0) {
+            const char* jmp = iloc_cmp_to_jmp(last_cmp ? last_cmp : "cmp_NE");
+            fprintf(stream, "    %s %s\n", jmp, current->arg2); // true branch
+            fprintf(stream, "    jmp %s\n", current->result);   // false branch
+        } else if (strcmp(current->opcode, "nop") == 0 || current->opcode == NULL) {
+            fprintf(stream, "    nop\n");
+        } else {
+            fprintf(stream, "    # UNHANDLED: %s\n", current->opcode);
+        }
+        current = current->next;
+    }
+
+    // --- X86 Assembly Footer ---
+    fprintf(stream, "    movl $0, %%eax\n");
+    fprintf(stream, "    popq %%rbp\n");
+    fprintf(stream, "    ret\n");
+}
+
+// Emits the .data section for all global variables in the symbol table stack
+void print_x86_data_section(FILE *stream, table_stack_t *stack) {
+    fprintf(stream, "    .data\n");
+
+    // Traverse all tables in the stack
+    for (table_stack_t *ts = stack; ts != NULL; ts = ts->next) {
+        table_t *table = ts->top;
+        if (!table) continue;
+        for (int i = 0; i < table->num_entries; i++) {
+            entry_t *entry = table->entries[i];
+            if (entry && entry->is_global) {
+                // Emit alignment, type, and size for each global variable
+                fprintf(stream, "    .align 4\n");
+                fprintf(stream, "    .type %s, @object\n", entry->value->lexema); // assumes valor_t has a 'name' field
+                fprintf(stream, "    .size %s, 4\n", entry->value->lexema);
+                fprintf(stream, "%s:\n", entry->value->lexema);
+                // Emit initial value (assume int for simplicity)
+                fprintf(stream, "    .long 0\n");
+            }
+        }
+    }
+}
+

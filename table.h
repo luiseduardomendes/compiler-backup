@@ -60,4 +60,7 @@ void free_table_stack(table_stack_t *table_stack);
 int is_var_global(table_stack_t* stack, const char* name);
 char* get_base_of(table_stack_t* stack, const char* name);
 
+void print_table(table_t *tabela);
+void print_table_stack(table_stack_t *table_stack);
+
 #endif // __VALOR_T__

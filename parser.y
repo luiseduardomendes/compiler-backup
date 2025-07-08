@@ -35,7 +35,8 @@
     static int global_offset = 0;
     static int local_offset = 0; 
     extern asd_tree_t *arvore;
-    table_stack_t *stack;
+    extern table_stack_t *stack;
+    //table_stack_t *stack;
     type_t   type_current_function;
     entry_t *entry_current_function;
     args_t  *args_current_function;
