@@ -3,8 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
-void print_x86_data_section(FILE *stream, table_stack_t *stack);
+#include <stdbool.h>
 
 const char* iloc_cmp_to_jmp(const char* cmp) {
     if (strcmp(cmp, "cmp_EQ") == 0) return "je";
@@ -192,20 +191,74 @@ void print_iloc_code(FILE *stream, iloc_list_t *list) {
         current = current->next;
     }
 }
-void print_x86_code(FILE *stream, iloc_list_t *list, table_stack_t *stack) {
+
+// --- Register Allocation ---
+
+#define MAX_VIRTUAL_REGS 256
+#define NUM_PHYSICAL_REGS 8
+
+// Registradores físicos disponíveis para alocação
+static const char* physical_regs[NUM_PHYSICAL_REGS] = {
+    "%r8d", "%r9d", "%r10d", "%r11d", "%r12d", "%r13d", "%r14d", "%r15d"
+};
+static int next_physical_reg_idx = 0;
+
+// Mapeamento de registradores virtuais para físicos
+typedef struct {
+    char* virtual_reg;
+    const char* physical_reg;
+} reg_map_entry_t;
+
+static reg_map_entry_t reg_map[MAX_VIRTUAL_REGS];
+static int reg_map_size = 0;
+
+// Função para obter o registrador físico a partir de um virtual
+const char* get_x86_reg(const char* virtual_reg) {
+    if (virtual_reg == NULL) return "";
+    if (strcmp(virtual_reg, "rfp") == 0) return "%rbp"; // rfp é sempre rbp
+
+    // Procura por um mapeamento existente
+    for (int i = 0; i < reg_map_size; i++) {
+        if (strcmp(reg_map[i].virtual_reg, virtual_reg) == 0) {
+            return reg_map[i].physical_reg;
+        }
+    }
+
+    // Cria um novo mapeamento se não existir
+    if (reg_map_size < MAX_VIRTUAL_REGS) {
+        const char* physical_reg = physical_regs[next_physical_reg_idx];
+        next_physical_reg_idx = (next_physical_reg_idx + 1) % NUM_PHYSICAL_REGS;
+
+        reg_map[reg_map_size].virtual_reg = strdup(virtual_reg);
+        reg_map[reg_map_size].physical_reg = physical_reg;
+        return reg_map[reg_map_size++].physical_reg;
+    }
+
+    fprintf(stderr, "Erro: Excesso de registradores virtuais!\n"); //ToDo: precisa?
+    exit(EXIT_FAILURE);
+}
+
+void free_register_map() {
+    for (int i = 0; i < reg_map_size; i++) {
+        free(reg_map[i].virtual_reg);
+    }
+    reg_map_size = 0;
+    next_physical_reg_idx = 0;
+}
+
+// --- X86 Code Generation ---
+void print_x86_code(FILE *stream, iloc_list_t *list) {
     if (!list || !list->head) {
         return;
     }
-
-    // --- X86 Assembly Data Section (for globals) ---
-    print_x86_data_section(stream, stack);
-
     // --- X86 Assembly Header ---
     fprintf(stream, "    .text\n");
     fprintf(stream, "    .globl main\n");
     fprintf(stream, "main:\n");
     fprintf(stream, "    pushq %%rbp\n");
     fprintf(stream, "    movq %%rsp, %%rbp\n");
+    // Aloca espaço na pilha para variáveis locais (ex: 128 bytes)
+    fprintf(stream, "    subq $128, %%rsp\n\n");
 
     iloc_instr_t *current = list->head;
     const char* last_cmp = NULL;
@@ -218,35 +271,35 @@ void print_x86_code(FILE *stream, iloc_list_t *list, table_stack_t *stack) {
 
         // --- Arithmetic Operations ---
         if (strcmp(current->opcode, "add") == 0) {
-            fprintf(stream, "    movl %s, %s\n", current->arg1, current->result);
-            fprintf(stream, "    addl %s, %s\n", current->arg2, current->result);
+            fprintf(stream, "    movl %s, %s\n", get_x86_reg(current->arg1), get_x86_reg(current->result));
+            fprintf(stream, "    addl %s, %s\n", get_x86_reg(current->arg2), get_x86_reg(current->result));
         } else if (strcmp(current->opcode, "sub") == 0) {
-            fprintf(stream, "    movl %s, %s\n", current->arg1, current->result);
-            fprintf(stream, "    subl %s, %s\n", current->arg2, current->result);
+            fprintf(stream, "    movl %s, %s\n", get_x86_reg(current->arg1), get_x86_reg(current->result));
+            fprintf(stream, "    subl %s, %s\n", get_x86_reg(current->arg2), get_x86_reg(current->result));
         } else if (strcmp(current->opcode, "mult") == 0) {
-            fprintf(stream, "    movl %s, %s\n", current->arg1, current->result);
-            fprintf(stream, "    imull %s, %s\n", current->arg2, current->result);
+            fprintf(stream, "    movl %s, %s\n", get_x86_reg(current->arg1), get_x86_reg(current->result));
+            fprintf(stream, "    imull %s, %s\n", get_x86_reg(current->arg2), get_x86_reg(current->result));
         } else if (strcmp(current->opcode, "div") == 0) {
-            fprintf(stream, "    movl %s, %%eax\n", current->arg1);
+            fprintf(stream, "    movl %s, %%eax\n", get_x86_reg(current->arg1));
             fprintf(stream, "    cltd\n");
-            fprintf(stream, "    idivl %s\n", current->arg2);
+            fprintf(stream, "    idivl %s\n", get_x86_reg(current->arg2));
             fprintf(stream, "    movl %%eax, %s\n", current->result);
-        } else if (strcmp(current->opcode, "addI") == 0) {
-            fprintf(stream, "    movl %s, %s\n", current->arg1, current->result);
-            fprintf(stream, "    addl $%s, %s\n", current->arg2, current->result);
+        // --- Memory ---
         } else if (strcmp(current->opcode, "loadI") == 0) {
-            fprintf(stream, "    movl $%s, %s\n", current->arg1, current->result);
-        } else if (strcmp(current->opcode, "loadAI") == 0) {
-            // loadAI base, offset => dest
-            fprintf(stream, "    movl %s(%s), %s\n", current->arg2, current->arg1, current->result);
-        } else if (strcmp(current->opcode, "load") == 0) {
-            fprintf(stream, "    movl %s, %s\n", current->arg1, current->result);
-        } else if (strcmp(current->opcode, "storeAI") == 0) {
-            fprintf(stream, "    movl %s, %s(%s)\n", current->arg1, current->result, current->arg2);
+            fprintf(stream, "    movl $%s, %s\n", current->arg1, get_x86_reg(current->result));
+        } else if (strcmp(current->opcode, "loadAI") == 0) { // Local vars
+            fprintf(stream, "    movl %s(%s), %s\n", current->arg2, get_x86_reg(current->arg1), get_x86_reg(current->result));
+        } else if (strcmp(current->opcode, "storeAI") == 0) { // Local vars
+            fprintf(stream, "    movl %s, %s(%s)\n", get_x86_reg(current->arg1), current->result, get_x86_reg(current->arg2));
+        } else if (strcmp(current->opcode, "loadAG") == 0) { // Global vars
+            fprintf(stream, "    movl %s(%%rip), %s\n", current->arg1, get_x86_reg(current->result));
+        } else if (strcmp(current->opcode, "storeAG") == 0) { // Global vars
+            fprintf(stream, "    movl %s, %s(%%rip)\n", get_x86_reg(current->arg1), current->arg2);
+        // --- Control Flow ---
         } else if (strcmp(current->opcode, "jumpI") == 0 || strcmp(current->opcode, "jump") == 0) {
             fprintf(stream, "    jmp %s\n", current->result);
         } else if (strncmp(current->opcode, "cmp_", 4) == 0) {
-            fprintf(stream, "    cmpl %s, %s\n", current->arg2, current->arg1);
+            fprintf(stream, "    cmpl %s, %s\n", get_x86_reg(current->arg2), get_x86_reg(current->arg1));
             last_cmp = current->opcode;
         } else if (strcmp(current->opcode, "cbr") == 0) {
             const char* jmp = iloc_cmp_to_jmp(last_cmp ? last_cmp : "cmp_NE");
@@ -268,24 +321,38 @@ void print_x86_code(FILE *stream, iloc_list_t *list, table_stack_t *stack) {
 
 // Emits the .data section for all global variables in the symbol table stack
 void print_x86_data_section(FILE *stream, table_stack_t *stack) {
-    fprintf(stream, "    .data\n");
+    bool has_globals = false;
+    table_stack_t *ts_check = stack;
+    while(ts_check != NULL) {
+        table_t *table = ts_check->top;
+        if(table) {
+            for (int i = 0; i < table->num_entries; i++) {
+                if (table->entries[i] && table->entries[i]->is_global) {
+                    has_globals = true;
+                    break;
+                }
+            }
+        }
+        if(has_globals) break;
+        ts_check = ts_check->next;
+    }
 
-    // Traverse all tables in the stack
+    if(!has_globals) return;
+
+    fprintf(stream, "    .data\n");
     for (table_stack_t *ts = stack; ts != NULL; ts = ts->next) {
         table_t *table = ts->top;
         if (!table) continue;
         for (int i = 0; i < table->num_entries; i++) {
             entry_t *entry = table->entries[i];
             if (entry && entry->is_global) {
-                // Emit alignment, type, and size for each global variable
+                fprintf(stream, "    .globl %s\n", entry->value->lexema);
                 fprintf(stream, "    .align 4\n");
-                fprintf(stream, "    .type %s, @object\n", entry->value->lexema); // assumes valor_t has a 'name' field
-                fprintf(stream, "    .size %s, 4\n", entry->value->lexema);
                 fprintf(stream, "%s:\n", entry->value->lexema);
-                // Emit initial value (assume int for simplicity)
-                fprintf(stream, "    .long 0\n");
+                fprintf(stream, "    .long 0\n"); // Initialize globals to 0
             }
         }
     }
+    fprintf(stream, "\n");
 }
 

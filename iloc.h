@@ -27,6 +27,8 @@ void free_iloc_list(iloc_list_t *list); // Add this
 iloc_list_t* copy_iloc_list(const iloc_list_t* src);
 
 void print_iloc_code(FILE *stream, iloc_list_t *list);
-void print_x86_code(FILE *stream, iloc_list_t *list, table_stack_t *stack);
+void print_x86_code(FILE *stream, iloc_list_t *list);
+void print_x86_data_section(FILE *stream, table_stack_t *stack);
+
 
 #endif

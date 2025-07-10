@@ -10,7 +10,7 @@ int main (int argc, char **argv)
   (void)argv;
   int ret = yyparse();
   if (arvore->children[0]->code != NULL){
-    print_x86_code(stdout, arvore->code, stack);
+    print_x86_code(stdout, arvore->code);
   }  
   asd_free(arvore);
   yylex_destroy();

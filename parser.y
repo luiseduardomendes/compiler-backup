@@ -238,6 +238,8 @@ cabecalho_funcao:
             free($3);
             exit(ERR_DECLARED);
         }
+
+        print_x86_data_section(stdout, stack);
         
         entry = new_entry(get_line_number(), N_FUNC, *($3), $1, NULL, GLOBAL, 0);
         $$ = asd_new($1->lexema, *($3), NULL, NULL);
