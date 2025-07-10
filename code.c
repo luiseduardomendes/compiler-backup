@@ -68,33 +68,43 @@ iloc_list_t* gen_var(table_stack_t* stack, const char* var_name, char** result_r
     entry_t *entry = search_table_stack(stack, var_name);
     
     char* base_reg = get_base_of(stack, var_name);
-    int offset = entry->offset;
-    char *offset_str = malloc(16);
-    sprintf(offset_str, "%d", offset);
-
-    append_iloc(code, make_iloc(NULL, "loadAI", base_reg, offset_str, *result_reg));
-    free(offset_str);
+    
+     if (strcmp(base_reg, "rbss") == 0) { // Global variable
+        append_iloc(code, make_iloc(NULL, "loadAG", (char*)var_name, NULL, *result_reg));
+    } else { // Local variable
+        int offset = entry->offset;
+        char *offset_str = malloc(16);
+        // Negate offset for local variables, as they are on the stack relative to rbp
+        sprintf(offset_str, "%d", -offset);
+        append_iloc(code, make_iloc(NULL, "loadAI", base_reg, offset_str, *result_reg));
+        free(offset_str);
+    }
     return code;
 }
 
 // Generate code for assignment
 iloc_list_t* gen_assign(table_stack_t* stack, const char* var_name, iloc_list_t* expr_code, char* expr_reg) {
-    iloc_list_t* code = NULL;
+   iloc_list_t* code = NULL;
+   if (expr_code) {
+      code = concat_iloc(code, expr_code);
+   } else {
+      code = new_iloc_list();
+   }
+   entry_t *entry = search_table_stack(stack, (char*)var_name);
+   char* base_reg = get_base_of(stack, var_name);
 
-    entry_t *entry = search_table_stack(stack, var_name);
-
-    char* base_reg = get_base_of(stack, var_name);
-    int offset = entry->offset;
-    char *offset_str = malloc(16);
-    sprintf(offset_str, "%d", offset);
-
-    if (expr_code) code = concat_iloc(code, expr_code);
-    else code = new_iloc_list();
-    append_iloc(code, make_iloc(NULL, "storeAI", expr_reg, base_reg, offset_str));
-
-    free(offset_str);
-
-    return code;
+   if (strcmp(base_reg, "rbss") == 0) { // Global variable
+      append_iloc(code, make_iloc(NULL, "storeAG", expr_reg, (char*)var_name, NULL));
+   } else { // Local variable
+      int offset = entry->offset;
+      char *offset_str = malloc(16);
+      // Negate offset for local variables
+      sprintf(offset_str, "%d", -offset); //ToDo: precisa? sim
+      // storeAI src_reg => base_reg, offset_str
+      append_iloc(code, make_iloc(NULL, "storeAI", expr_reg, base_reg, offset_str));
+      free(offset_str);
+   }
+   return code;
 }
 
 iloc_list_t* gen_if(iloc_list_t* cond_code, char* cond_reg, iloc_list_t* then_code, iloc_list_t* else_code) {
@@ -188,5 +198,19 @@ iloc_list_t* gen_while(iloc_list_t* cond_code, char* cond_reg, iloc_list_t* body
     free(start_label);
     free(true_label);
     free(end_label);
+    return code;
+}
+
+iloc_list_t *gen_return(iloc_list_t *expr_code, char *expr_reg) {
+    iloc_list_t *code = new_iloc_list();
+    iloc_list_t *code_aux = NULL;
+
+    if (expr_code) {
+        code_aux = concat_iloc(code, expr_code);
+        free_iloc_list(code);
+        code = code_aux;
+    }
+
+    append_iloc(code, make_iloc(NULL, "return", expr_reg, NULL, NULL));
     return code;
 }

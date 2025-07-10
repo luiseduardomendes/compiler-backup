@@ -301,8 +301,7 @@ declaracao_variavel_global:
     TK_PR_DECLARE TK_ID TK_PR_AS tipo {
         entry_t *entry = search_table(stack->top, $2->lexema);
 
-        global_offset += VAR_SIZE; // Atualiza o contador global
-
+        
         if (entry != NULL || (stack->next != NULL && args_current_function != NULL && contains_in_args(args_current_function, $2->lexema) == 1)){
             printf("%sERR_DECLARED : Line: %d\nVariable <%s> already declared%s\n", RED, get_line_number(), $2->lexema, RESET);
             free($4);
@@ -312,6 +311,7 @@ declaracao_variavel_global:
             entry = new_entry(get_line_number(), N_VAR, *($4), $2, NULL, GLOBAL, global_offset);
             add_entry(stack->top, entry);
         }
+        
         $$ = asd_new($2->lexema, *($4), NULL, NULL); 
         free_valor($2);
         free($4);
@@ -552,6 +552,7 @@ comando_retorno:
         $$ = asd_new("return", type_current_function, $2 ? $2->code : NULL, $2 ? $2->place : NULL);
         if ($2 != NULL){
             asd_add_child($$, $2); 
+            $$->code = gen_return($2->code, $2->place);
         }
         free($4);
     };

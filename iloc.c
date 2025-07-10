@@ -248,6 +248,7 @@ void free_register_map() {
 
 // --- X86 Code Generation ---
 void print_x86_code(FILE *stream, iloc_list_t *list) {
+    int has_return = 0;
     if (!list || !list->head) {
         return;
     }
@@ -288,9 +289,9 @@ void print_x86_code(FILE *stream, iloc_list_t *list) {
         } else if (strcmp(current->opcode, "loadI") == 0) {
             fprintf(stream, "    movl $%s, %s\n", current->arg1, get_x86_reg(current->result));
         } else if (strcmp(current->opcode, "loadAI") == 0) { // Local vars
-            fprintf(stream, "    movl %s(%s), %s\n", current->arg2, get_x86_reg(current->arg1), get_x86_reg(current->result));
+            fprintf(stream, "    movl %s(%%rbp), %s\n", current->arg2, get_x86_reg(current->result));
         } else if (strcmp(current->opcode, "storeAI") == 0) { // Local vars
-            fprintf(stream, "    movl %s, %s(%s)\n", get_x86_reg(current->arg1), current->result, get_x86_reg(current->arg2));
+            fprintf(stream, "    movl %s, %s(%%rbp)\n", get_x86_reg(current->arg1), current->result);
         } else if (strcmp(current->opcode, "loadAG") == 0) { // Global vars
             fprintf(stream, "    movl %s(%%rip), %s\n", current->arg1, get_x86_reg(current->result));
         } else if (strcmp(current->opcode, "storeAG") == 0) { // Global vars
@@ -305,6 +306,13 @@ void print_x86_code(FILE *stream, iloc_list_t *list) {
             const char* jmp = iloc_cmp_to_jmp(last_cmp ? last_cmp : "cmp_NE");
             fprintf(stream, "    %s %s\n", jmp, current->arg2); // true branch
             fprintf(stream, "    jmp %s\n", current->result);   // false branch
+        } else if (strcmp(current->opcode, "return") == 0) {
+            has_return = 1;
+            if (current->arg1) {
+                fprintf(stream, "    movl %s, %%eax\n", get_x86_reg(current->arg1));
+            } else {
+                fprintf(stream, "    movl $0, %%eax\n"); // Return 0
+            }
         } else if (strcmp(current->opcode, "nop") == 0 || current->opcode == NULL) {
             fprintf(stream, "    nop\n");
         } else {
@@ -314,7 +322,10 @@ void print_x86_code(FILE *stream, iloc_list_t *list) {
     }
 
     // --- X86 Assembly Footer ---
-    fprintf(stream, "    movl $0, %%eax\n");
+    if(has_return == 0){
+        fprintf(stream, "    movl $0, %%eax\n"); // Return 0
+    }
+    fprintf(stream, "    addq $128, %%rsp\n");
     fprintf(stream, "    popq %%rbp\n");
     fprintf(stream, "    ret\n");
 }

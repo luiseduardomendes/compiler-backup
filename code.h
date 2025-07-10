@@ -32,6 +32,8 @@ iloc_list_t* gen_if(iloc_list_t* cond_code, char* cond_reg,
                    iloc_list_t* then_code, iloc_list_t* else_code);
 iloc_list_t* gen_while(iloc_list_t* cond_code, char* cond_reg, iloc_list_t* body_code);
 
+iloc_list_t* gen_return(iloc_list_t* expr_code, char* expr_reg);
+
 // Helper functions
 char* new_reg();  // For temporary register allocation
 
